@@ -99,6 +99,53 @@ async function checkSignedIn() {
   }
 }
 
+// ── Extrai texto de qualquer formato de resposta do Puter ──
+function extractText(response) {
+  // Tipo 1: string direta
+  if (typeof response === "string") return response;
+
+  // Tipo 2: { message: { content: string | [{type,text}] } }
+  const mc = response?.message?.content;
+  if (mc) {
+    if (typeof mc === "string") return mc;
+    if (Array.isArray(mc)) {
+      const t = mc.find(b => b?.type === "text" || typeof b?.text === "string");
+      if (t?.text) return t.text;
+      // alguns formatos retornam só [{type:"text",text:"..."}]
+      const joined = mc.map(b => b?.text || "").filter(Boolean).join("\n");
+      if (joined) return joined;
+    }
+  }
+
+  // Tipo 3: { content: [{type,text}] }  (formato Anthropic direto)
+  const cc = response?.content;
+  if (Array.isArray(cc)) {
+    const t = cc.find(b => b?.type === "text" || typeof b?.text === "string");
+    if (t?.text) return t.text;
+    const joined = cc.map(b => b?.text || "").filter(Boolean).join("\n");
+    if (joined) return joined;
+  }
+
+  // Tipo 4: { text: string }
+  if (typeof response?.text === "string") return response.text;
+
+  // Tipo 5: { choices: [{message:{content}}] }  (OpenAI-compat)
+  const choice = response?.choices?.[0];
+  if (choice) {
+    if (typeof choice.message?.content === "string") return choice.message.content;
+    if (typeof choice.text === "string") return choice.text;
+  }
+
+  // Fallback: tenta JSON legível; se não der, erro explícito
+  try {
+    const json = JSON.stringify(response, null, 2);
+    console.error("[callPuter] formato desconhecido:", json);
+    return `⚠️ Formato de resposta inesperado. Veja o console para detalhes.\n\n${json.slice(0, 300)}`;
+  } catch {
+    return "⚠️ Resposta inválida recebida do servidor.";
+  }
+}
+
 // ── Chama a IA via Puter ──────────────────────────────────
 async function callPuter(messages, profile) {
   const puter = await waitForPuter();
@@ -112,11 +159,9 @@ async function callPuter(messages, profile) {
     puter.ai.chat(fullMessages, { model: "claude-sonnet-4-6" }),
     new Promise((_, rej) => setTimeout(() => rej(new Error("timeout_ia")), 90000))
   ]);
-  if (typeof response === "string") return response;
-  if (response?.message?.content) return response.message.content;
-  if (response?.content?.[0]?.text) return response.content[0].text;
-  if (response?.text) return response.text;
-  return String(response);
+  const text = extractText(response);
+  // Garante que sempre retornamos uma string primitiva — nunca um objeto
+  return typeof text === "string" ? text : String(text);
 }
 
 function Chip({ label, selected, onToggle }) {
