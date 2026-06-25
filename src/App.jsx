@@ -99,53 +99,6 @@ async function checkSignedIn() {
   }
 }
 
-// ── Extrai texto de qualquer formato de resposta do Puter ──
-function extractText(response) {
-  // Tipo 1: string direta
-  if (typeof response === "string") return response;
-
-  // Tipo 2: { message: { content: string | [{type,text}] } }
-  const mc = response?.message?.content;
-  if (mc) {
-    if (typeof mc === "string") return mc;
-    if (Array.isArray(mc)) {
-      const t = mc.find(b => b?.type === "text" || typeof b?.text === "string");
-      if (t?.text) return t.text;
-      // alguns formatos retornam só [{type:"text",text:"..."}]
-      const joined = mc.map(b => b?.text || "").filter(Boolean).join("\n");
-      if (joined) return joined;
-    }
-  }
-
-  // Tipo 3: { content: [{type,text}] }  (formato Anthropic direto)
-  const cc = response?.content;
-  if (Array.isArray(cc)) {
-    const t = cc.find(b => b?.type === "text" || typeof b?.text === "string");
-    if (t?.text) return t.text;
-    const joined = cc.map(b => b?.text || "").filter(Boolean).join("\n");
-    if (joined) return joined;
-  }
-
-  // Tipo 4: { text: string }
-  if (typeof response?.text === "string") return response.text;
-
-  // Tipo 5: { choices: [{message:{content}}] }  (OpenAI-compat)
-  const choice = response?.choices?.[0];
-  if (choice) {
-    if (typeof choice.message?.content === "string") return choice.message.content;
-    if (typeof choice.text === "string") return choice.text;
-  }
-
-  // Fallback: tenta JSON legível; se não der, erro explícito
-  try {
-    const json = JSON.stringify(response, null, 2);
-    console.error("[callPuter] formato desconhecido:", json);
-    return `⚠️ Formato de resposta inesperado. Veja o console para detalhes.\n\n${json.slice(0, 300)}`;
-  } catch {
-    return "⚠️ Resposta inválida recebida do servidor.";
-  }
-}
-
 // ── Chama a IA via Puter ──────────────────────────────────
 async function callPuter(messages, profile) {
   const puter = await waitForPuter();
@@ -159,9 +112,22 @@ async function callPuter(messages, profile) {
     puter.ai.chat(fullMessages, { model: "claude-sonnet-4-6" }),
     new Promise((_, rej) => setTimeout(() => rej(new Error("timeout_ia")), 90000))
   ]);
-  const text = extractText(response);
-  // Garante que sempre retornamos uma string primitiva — nunca um objeto
-  return typeof text === "string" ? text : String(text);
+  try {
+    if (typeof response === "string") return response;
+    if (typeof response?.text === "string") return response.text;
+    if (typeof response?.message?.content === "string") return response.message.content;
+    if (Array.isArray(response?.message?.content)) {
+      return response.message.content.map(b => b?.text || "").join("");
+    }
+    if (typeof response?.content === "string") return response.content;
+    if (Array.isArray(response?.content)) {
+      return response.content.map(b => b?.text || "").join("");
+    }
+    console.error("Puter formato desconhecido:", JSON.stringify(response));
+    return "Resposta em formato inesperado. Tente novamente.";
+  } catch {
+    return "Erro ao processar resposta. Tente novamente.";
+  }
 }
 
 function Chip({ label, selected, onToggle }) {
@@ -206,12 +172,22 @@ export default function App() {
       if (pr) {
         const p = JSON.parse(pr.value);
         setProfile(p); profRef.current = p; setForm(p);
-        if (mr) setMessages(JSON.parse(mr.value));
+        if (mr) {
+          // Sanitiza mensagens: garante que todo content é string
+          const msgs = JSON.parse(mr.value);
+          const safe = msgs.map(m => ({
+            ...m,
+            content: typeof m.content === "string" ? m.content : JSON.stringify(m.content)
+          }));
+          setMessages(safe);
+        }
         setView("main");
       } else {
         setView("onboarding");
       }
     } catch {
+      // Se der qualquer erro no localStorage, limpa e recomeça
+      store.set(STORAGE_MSGS, JSON.stringify([]));
       setView("onboarding");
     }
   }
@@ -258,7 +234,9 @@ export default function App() {
     setLoading(true);
     try {
       const reply = await callPuter(newMsgs, profRef.current || form);
-      const final = [...newMsgs, { role: "assistant", content: reply }];
+      // Garante que reply é sempre string antes de renderizar
+      const safeReply = (typeof reply === "string") ? reply : JSON.stringify(reply);
+      const final = [...newMsgs, { role: "assistant", content: safeReply }];
       setMessages(final);
       store.set(STORAGE_MSGS, JSON.stringify(final.slice(-40)));
     } catch (e) {
