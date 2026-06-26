@@ -278,8 +278,13 @@ export default function DirectorMusical(){
     try{
       const res = await fetch(`${c.url}?action=resumo&token=${encodeURIComponent(c.token)}`);
       const json = await res.json();
-      if(json.success){ resumoRef.current=json.resumo; setResumo(json.resumo); return json.resumo; }
-    }catch{}
+      if(json.success){
+        resumoRef.current=json.resumo;
+        setResumo(json.resumo);
+        setSyncing(false); // ← fix: resetar sempre
+        return json.resumo;
+      }
+    }catch(e){ console.error("Sync error:",e); }
     setSyncing(false);
     return null;
   },[config]);
