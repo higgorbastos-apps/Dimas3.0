@@ -182,19 +182,19 @@ HISTÓRICO REAL DE SHOWS (dados da planilha Google Sheets do artista):
 • Média de músicas por show: ${resumo.mediaMusicasPorShow}
 
 TOP MÚSICAS MAIS TOCADAS:
-${resumo.maisOcadas.map((m,i) => `${i+1}. ${m.musica} — ${m.vezes}x (última vez: ${m.ultimaVez})`).join('\n')}
+${(resumo.maisOcadas||[]).map((m,i) => `${i+1}. ${m.musica} — ${m.vezes}x (última vez: ${m.ultimaVez})`).join('\n')}
 
 MÚSICAS QUE NÃO ENTRAM HÁ MAIS DE 60 DIAS (repertório esquecido):
-${resumo.esquecidas.length > 0 ? resumo.esquecidas.map(m => `• ${m.musica} (última vez: ${m.ultimaVez})`).join('\n') : '• Nenhuma — todos os itens foram usados recentemente.'}
+${(resumo.esquecidas||[]).length > 0 ? (resumo.esquecidas||[]).map(m => `• ${m.musica} (última vez: ${m.ultimaVez})`).join('\n') : '• Nenhuma — todos os itens foram usados recentemente.'}
 
 SHOWS POR MÊS (últimos 12 meses):
-${resumo.showsPorMes.map(s => `• ${s.mes}: ${s.qtd} show${s.qtd>1?'s':''}`).join('\n')}
+${(resumo.showsPorMes||[]).map(s => `• ${s.mes}: ${s.qtd} show${s.qtd>1?'s':''}`).join('\n')}
 
 LOCAIS MAIS FREQUENTES:
-${resumo.locaisMaisFrequentes.map(l => `• ${l.local}: ${l.qtd}x`).join('\n')}
+${(resumo.locaisMaisFrequentes||[]).map(l => `• ${l.local}: ${l.qtd}x`).join('\n')}
 
 ÚLTIMOS 5 SHOWS:
-${resumo.ultimos5.map(s => `• ${s.data} — ${s.local} (${s.qtd} músicas)${s.setlist?.length > 0 ? '\n  Setlist: ' + s.setlist.slice(0,5).join(', ') + (s.setlist.length > 5 ? '...' : '') : ''}`).join('\n')}
+${(resumo.ultimos5||[]).map(s => `• ${s.data} — ${s.local} (${s.qtd} músicas)${s.setlist?.length > 0 ? '\n  Setlist: ' + s.setlist.slice(0,5).join(', ') + (s.setlist.length > 5 ? '...' : '') : ''}`).join('\n')}
 ` : `
 HISTÓRICO DE SHOWS: Ainda não há shows registrados na planilha. O artista está começando a usar o sistema agora.
 Baseie suas análises no perfil declarado e oriente o artista sobre como construir um histórico rico desde o início.
@@ -257,8 +257,17 @@ export default function DirectorMusical(){
   const profileRef= useRef(null);
   const resumoRef = useRef(null);
 
-  /* LOAD */
+  // Mensagem de boas-vindas local — sem custo de IA
   useEffect(()=>{
+    if(view==="main" && profile && messages.length===0 && !loading){
+      const nome = profile.nome || "músico";
+      setMessages([{
+        role:"assistant",
+        content:`Perfil carregado. Estou pronto para trabalhar com você, ${nome}.\n\nAssim que você registrar seus primeiros shows no Setlist PWA, terei dados reais para analisar — setlists baseados no seu histórico, padrões de repertório, frequência de shows e muito mais.\n\nPor enquanto, escolha uma ação acima ou me faça uma pergunta direta.`
+      }]);
+    }
+  // eslint-disable-next-line
+  },[view, profile]);
     const pr=store.get(STORAGE_PROFILE);
     const mr=store.get(STORAGE_MSGS);
     const cr=store.get(STORAGE_CONFIG);
@@ -331,19 +340,10 @@ export default function DirectorMusical(){
     setProfile(p); profileRef.current=p; setForm(p);
     store.set(STORAGE_PROFILE,JSON.stringify(p));
     setModal(null); setView("main");
-    if(isFirst){
-      let r=null;
-      if(config?.url) r=await syncPlanilha();
-      setLoading(true);
-      try{
-        const t="Apresentação inicial: acabei de receber seu briefing completo. Apresente-se profissionalmente e faça uma análise honesta do meu perfil e do meu histórico de shows — o que você vê de potencial real, o que está me limitando e qual é a primeira ação concreta desta semana.";
-        const reply=await callAPI([{role:"user",content:t}],p,r);
-        const intro=[{role:"assistant",content:reply}];
-        setMessages(intro); store.set(STORAGE_MSGS,JSON.stringify(intro));
-      }catch(e){ setMessages([{role:"assistant",content:`Erro ao iniciar: ${e.message}`}]); }
-      setLoading(false);
-    }
-  },[config,syncPlanilha,callAPI]);
+    // Sem chamada automática de IA — o Diretor fala quando você perguntar.
+    // Sincroniza a planilha silenciosamente se já estiver configurada.
+    if(isFirst && config?.url) syncPlanilha();
+  },[config,syncPlanilha]);
 
   const saveConfig = useCallback(async(c)=>{
     setConfig(c); setCfgForm(c);
@@ -385,7 +385,7 @@ export default function DirectorMusical(){
   const step=OB[obStep]; const isLast=obStep===OB.length-1;
   const showQA=messages.length===0&&!loading;
   const isConnected=!!(config?.url&&config?.token);
-  const temHistorico=resumo&&resumo.totalShows>0;
+  const temHistorico = !!(resumo && resumo.totalShows > 0 && Array.isArray(resumo.maisOcadas));
 
   /* ── LOADING ── */
   if(view==="loading") return <div id="dm-root" style={{alignItems:"center",justifyContent:"center"}}><style>{CSS}</style><div className="thinking"><span/><span/><span/></div></div>;
