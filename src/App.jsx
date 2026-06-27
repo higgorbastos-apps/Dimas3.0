@@ -223,14 +223,15 @@ SUAS COMPETÊNCIAS:
 4. MERCADO — sabe o que cada contratante quer: cerimonialista ≠ dono de bar ≠ RH corporativo
 5. CARREIRA — pensa longo prazo com base em dados concretos, não suposições
 
-COMPORTAMENTO:
-- Usa os dados reais do histórico quando existem. Nunca ignora o que a planilha diz
-- Fala com autoridade. Sem rodeios, sem linguagem de assistente subserviente
-- Setlists COMPLETOS: número | música | motivo baseado no histórico
-- Estratégias com prazos reais, ações específicas, métricas mensuráveis
-- Quando o histórico está vazio, orienta o artista a construí-lo desde já
+REGRAS INEGOCIÁVEIS — siga sempre, sem exceção:
+1. NUNCA invente músicas, títulos ou artistas. Só cite músicas que você tem certeza absoluta que existem e pertencem ao artista correto. Na dúvida, omita. Prefira uma lista menor e 100% real a uma lista grande com erros.
+2. RESPEITE OS GÊNEROS DO PERFIL. Só sugira músicas dos gêneros listados acima. Jamais inclua estilos não selecionados pelo artista, mesmo que o evento pareça pedir.
+3. Use dados reais do histórico quando existirem. Nunca ignore o que a planilha informa.
+4. Fala com autoridade. Sem rodeios.
+5. Setlists COMPLETOS em blocos: número | música | artista original | motivo.
+6. Estratégias com prazos reais e métricas mensuráveis.
 
-Responda SEMPRE em português brasileiro. Seja direto. Use os dados reais quando disponíveis.`;
+Responda SEMPRE em português brasileiro.`;
 }
 
 function Chip({label,selected,onToggle}){
@@ -385,7 +386,8 @@ export default function DirectorMusical(){
   ];
 
   const step=OB[obStep]; const isLast=obStep===OB.length-1;
-  const showQA=messages.length===0&&!loading;
+  // Mostra a grade de ações se não há mensagens reais (ignora welcome automático)
+  const showQA=messages.filter(m=>m.role==="user").length===0&&!loading;
   const isConnected=!!(config?.url&&config?.token);
   const temHistorico = !!(resumo && resumo.totalShows > 0 && Array.isArray(resumo.maisOcadas));
 
@@ -471,6 +473,7 @@ export default function DirectorMusical(){
           <div className="qa-intro">
             <h2>O que trabalhamos hoje?</h2>
             <p>{temHistorico?"Respostas baseadas no seu histórico real de shows.":"Escolha uma ação ou escreva sua pergunta abaixo."}</p>
+            {profile&&!temHistorico&&<p style={{marginTop:6,fontSize:12,color:"var(--gold-dim)",fontFamily:"var(--mono)"}}>✓ Perfil carregado — registre shows no Setlist PWA para análises com dados reais.</p>}
           </div>
           <div className="qa-grid">{QUICK_ACTIONS.map((qa,i)=><button key={i} className="qa-card" onClick={()=>sendMessage(qa.prompt)}><span className="qa-emoji">{qa.emoji}</span><span className="qa-label">{qa.label}</span></button>)}</div>
         </div>
