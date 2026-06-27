@@ -302,24 +302,23 @@ export default function DirectorMusical(){
   },[config]);
 
   /* PUTER.JS CALL */
+  // Chama o proxy seguro no Vercel — a API key nunca fica exposta no frontend
   const callAPI = useCallback(async(msgs,p,r)=>{
-    const prof  = p  || profileRef.current || form;
-    const res_  = r  !== undefined ? r : resumoRef.current;
-    const puter = window.puter;
-    if(!puter) throw new Error("Puter.js não carregou. Verifique o index.html.");
-
+    const prof = p||profileRef.current||form;
+    const res_ = r!==undefined?r:resumoRef.current;
     const fullMessages=[
       { role:"user",      content:`Contexto — leia antes de responder:\n\n${buildSP(prof, res_)}` },
       { role:"assistant", content:"Entendido. Estou com acesso ao perfil e ao histórico real de shows. Pronto para trabalhar." },
       ...msgs
     ];
-
-    const response = await puter.ai.chat(fullMessages, { model:"claude-sonnet-4-6" });
-    if(typeof response==="string") return response;
-    if(response?.message?.content) return response.message.content;
-    if(response?.content?.[0]?.text) return response.content[0].text;
-    if(response?.text) return response.text;
-    return String(response);
+    const res = await fetch("/api/chat",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({ model:"claude-sonnet-4-6", max_tokens:2048, messages:fullMessages })
+    });
+    const d = await res.json();
+    if(!res.ok) throw new Error(d.error?.message||d.error||"Erro no servidor");
+    return d.content?.[0]?.text||"Erro na resposta.";
   },[form]);
 
   const sendMessage = useCallback(async(text,base)=>{
