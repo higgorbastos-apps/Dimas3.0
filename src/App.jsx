@@ -257,7 +257,18 @@ export default function DirectorMusical(){
   const profileRef= useRef(null);
   const resumoRef = useRef(null);
 
-  // Mensagem de boas-vindas local — sem custo de IA
+  /* LOAD — lê perfil, mensagens e config do localStorage */
+  useEffect(()=>{
+    const pr=store.get(STORAGE_PROFILE);
+    const mr=store.get(STORAGE_MSGS);
+    const cr=store.get(STORAGE_CONFIG);
+    if(pr){ const p=JSON.parse(pr.value); setProfile(p); profileRef.current=p; setForm(p); }
+    if(mr){ setMessages(JSON.parse(mr.value)); }
+    if(cr){ const c=JSON.parse(cr.value); setConfig(c); setCfgForm(c); }
+    setView(pr?"main":"onboarding");
+  },[]);
+
+  /* Mensagem de boas-vindas local — sem custo de IA */
   useEffect(()=>{
     if(view==="main" && profile && messages.length===0 && !loading){
       const nome = profile.nome || "músico";
@@ -268,14 +279,6 @@ export default function DirectorMusical(){
     }
   // eslint-disable-next-line
   },[view, profile]);
-    const pr=store.get(STORAGE_PROFILE);
-    const mr=store.get(STORAGE_MSGS);
-    const cr=store.get(STORAGE_CONFIG);
-    if(pr){ const p=JSON.parse(pr.value); setProfile(p); profileRef.current=p; setForm(p); }
-    if(mr){ setMessages(JSON.parse(mr.value)); }
-    if(cr){ const c=JSON.parse(cr.value); setConfig(c); setCfgForm(c); }
-    setView(pr?"main":"onboarding");
-  },[]);
 
   useEffect(()=>{ endRef.current?.scrollIntoView({behavior:"smooth"}); },[messages,loading]);
 
