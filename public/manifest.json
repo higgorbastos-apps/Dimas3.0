@@ -10,9 +10,29 @@
   "theme_color": "#080705",
   "lang": "pt-BR",
   "icons": [
-    { "src": "/icons/dm-icon-192.png",          "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "/icons/dm-icon-512.png",           "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "/icons/dm-icon-192-maskable.png",  "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
-    { "src": "/icons/dm-icon-512-maskable.png",  "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    {
+      "src": "/icons/Dm 192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/Dm icon 512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/Dm icon 192 maskable.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icons/Dm icon 512 maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
   ]
 }
