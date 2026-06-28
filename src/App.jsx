@@ -441,7 +441,7 @@ export default function DirectorMusical(){
       <div className="dm-header">
         <div style={{display:"flex",flexDirection:"column",gap:3}}>
           <div className="dm-logotype">
-            <div className="dm-title">DIRETOR <em>MUSICAL</em></div>
+            <div className="dm-title">Dimas <em>Diretor Musical</em></div>
             {profile?.nome&&<div className="dm-artist">{profile.nome}</div>}
           </div>
           {isConnected&&(
