@@ -2,13 +2,14 @@ import { useState, useEffect, useRef, useCallback } from "react";
 
 // ============================================================
 //  DIRETOR MUSICAL — Fase 2
-//  Integrado com Google Sheets via Apps Script.
-//  IA via Puter.js — sem custo para o desenvolvedor.
+//  IA via Anthropic API (proxy seguro em /api/chat.js).
+//  Dados reais via Google Sheets + Apps Script.
 // ============================================================
 
 const STORAGE_PROFILE = "diretor_profile_v2";
 const STORAGE_MSGS    = "diretor_msgs_v2";
 const STORAGE_CONFIG  = "diretor_config_v1";
+const STORAGE_MEMORIA = "diretor_memoria_v1"; // cache local das memórias
 
 const store = {
   get: (k) => { try { const v=localStorage.getItem(k); return v?{value:v}:null; } catch { return null; } },
@@ -172,8 +173,9 @@ body{background:var(--bg);color:var(--cream);font-family:var(--sans);-webkit-tap
 `;
 
 /* ── SYSTEM PROMPT ─────────────────────────────────────────── */
-function buildSP(p, resumo) {
-  const tem = resumo && resumo.totalShows > 0 && Array.isArray(resumo.maisOcadas);
+function buildSP(p, resumo, memoria) {
+  const tem  = resumo && resumo.totalShows > 0 && Array.isArray(resumo.maisOcadas);
+  const mems = Array.isArray(memoria) && memoria.length > 0;
   const hist = tem ? `
 HISTÓRICO REAL (Google Sheets — dados atuais):
 • Shows registrados: ${resumo.totalShows} | Músicas únicas: ${resumo.totalMusicasUnicas} | Média por show: ${resumo.mediaMusicasPorShow}
@@ -204,6 +206,10 @@ PERFIL:
 • Objetivos: ${(p.objetivos||[]).join(", ")||"—"}
 • Diferencial: ${p.diferencial||"—"}
 ${hist}
+${mems ? `
+MEMÓRIAS ACUMULADAS — o que você já aprendeu sobre este artista em conversas anteriores:
+${memoria.map(m=>`[${m.categoria.toUpperCase()}] ${m.conteudo}`).join('\n')}
+` : ''}
 REGRAS DE SETLIST — INEGOCIÁVEIS:
 1. NUNCA repita a mesma música dentro de um único setlist. Cada música aparece no máximo uma vez.
 2. RESPEITE O TEMPO SOLICITADO com precisão:
@@ -251,13 +257,16 @@ export default function DirectorMusical(){
   const [cfgForm,setCfgForm]   = useState(EC);
   const endRef    = useRef(null);
   const profileRef= useRef(null);
-  const resumoRef = useRef(null);
+  const resumoRef  = useRef(null);
+  const memoriaRef = useRef([]);   // memórias persistentes do Diretor
 
   /* LOAD — lê perfil, mensagens e config do localStorage */
   useEffect(()=>{
     const pr=store.get(STORAGE_PROFILE);
     const mr=store.get(STORAGE_MSGS);
     const cr=store.get(STORAGE_CONFIG);
+    const memr=store.get(STORAGE_MEMORIA);
+    if(memr){ memoriaRef.current=JSON.parse(memr.value)||[]; }
     if(pr){ const p=JSON.parse(pr.value); setProfile(p); profileRef.current=p; setForm(p); }
     if(mr){ setMessages(JSON.parse(mr.value)); }
     if(cr){ const c=JSON.parse(cr.value); setConfig(c); setCfgForm(c); }
@@ -305,20 +314,88 @@ export default function DirectorMusical(){
         resumoRef.current = novoResumo;
         setResumo(novoResumo);
         setSyncing(false);
+        // Atualiza memórias em background após cada sync
+        fetchMemoria();
         return novoResumo;
       }
     }catch(e){ console.error("Sync error:",e); }
     setSyncing(false);
     return null;
-  },[config]);
+  },[config, fetchMemoria]);
 
   /* PUTER.JS CALL */
   // Chama o proxy seguro no Vercel — a API key nunca fica exposta no frontend
+  // Busca memórias da planilha e atualiza o cache local
+  const fetchMemoria = useCallback(async()=>{
+    const c = config;
+    if(!c?.url||!c?.token) return;
+    try{
+      const res  = await fetch(`${c.url}?action=ler_memoria&token=${encodeURIComponent(c.token)}`);
+      const json = await res.json();
+      if(json.success && Array.isArray(json.memorias)){
+        memoriaRef.current = json.memorias;
+        store.set(STORAGE_MEMORIA, JSON.stringify(json.memorias));
+      }
+    }catch{}
+  },[config]);
+
+  // Extrai e salva memórias após cada resposta do Diretor (background, silencioso)
+  const extrairESalvarMemoria = useCallback(async(msgs)=>{
+    const c = config;
+    if(!c?.url||!c?.token) return;
+    if(msgs.length < 2) return;
+    // Só processa se houver mensagem nova do usuário e resposta do Diretor
+    const ultimaMsgUser = [...msgs].reverse().find(m=>m.role==="user");
+    const ultimaRespDir = [...msgs].reverse().find(m=>m.role==="assistant");
+    if(!ultimaMsgUser||!ultimaRespDir) return;
+
+    try{
+      // Chamada de IA para extrair memórias da conversa
+      const extractRes = await fetch("/api/chat",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          model:"claude-sonnet-4-6",
+          max_tokens:600,
+          messages:[{
+            role:"user",
+            content:`Analise este trecho de conversa entre um artista e seu Diretor Musical e extraia informações relevantes para memorizar sobre o artista.
+
+USUÁRIO DISSE: "${ultimaMsgUser.content}"
+DIRETOR RESPONDEU: "${ultimaRespDir.content.substring(0,500)}"
+
+Retorne APENAS um JSON válido (sem markdown, sem explicação) com este formato exato:
+{"memorias":[{"categoria":"preferencia|feedback|aprendizado|show|meta|padrao","conteudo":"frase curta e objetiva sobre o artista","relevancia":1-10}]}
+
+Extraia apenas informações REALMENTE relevantes sobre o artista (preferências, feedbacks, aprendizados). Se não houver nada relevante, retorne {"memorias":[]}.`
+          }]
+        })
+      });
+      const extractData = await extractRes.json();
+      const text = extractData.content?.[0]?.text||"{}";
+      const clean = text.replace(/```json|```/g,"").trim();
+      const parsed = JSON.parse(clean);
+      if(parsed.memorias && parsed.memorias.length > 0){
+        // Salva na planilha
+        await fetch(c.url,{
+          method:"POST",
+          headers:{"Content-Type":"text/plain;charset=utf-8"},
+          body:JSON.stringify({ token:c.token, action:"salvar_memoria", memorias:parsed.memorias })
+        });
+        // Atualiza cache local
+        const novas = [...memoriaRef.current, ...parsed.memorias].slice(-30);
+        memoriaRef.current = novas;
+        store.set(STORAGE_MEMORIA, JSON.stringify(novas));
+      }
+    }catch(e){ console.log("Memory extraction skipped:",e.message); }
+  },[config]);
+
   const callAPI = useCallback(async(msgs,p,r)=>{
     const prof = p||profileRef.current||form;
     const res_ = r!==undefined?r:resumoRef.current;
+    const mem_ = memoriaRef.current||[];
     const fullMessages=[
-      { role:"user",      content:`Contexto — leia antes de responder:\n\n${buildSP(prof, res_)}` },
+      { role:"user",      content:`Contexto — leia antes de responder:\n\n${buildSP(prof, res_, mem_)}` },
       { role:"assistant", content:"Entendido. Estou com acesso ao perfil e ao histórico real de shows. Pronto para trabalhar." },
       ...msgs
     ];
@@ -345,9 +422,11 @@ export default function DirectorMusical(){
       const fin   = [...nm,{role:"assistant",content:reply}];
       setMessages(fin);
       store.set(STORAGE_MSGS,JSON.stringify(fin.slice(-40)));
+      // Extrai e salva memórias em background — silencioso, não bloqueia a UX
+      extrairESalvarMemoria(fin);
     }catch(e){ setMessages(prev=>[...prev,{role:"assistant",content:`Erro: ${e.message}`}]); }
     setLoading(false); setSyncing(false);
-  },[messages,loading,callAPI,config,syncPlanilha]);
+  },[messages,loading,callAPI,config,syncPlanilha,extrairESalvarMemoria]);
 
   const saveProfile = useCallback(async(p,isFirst)=>{
     setProfile(p); profileRef.current=p; setForm(p);
@@ -441,7 +520,7 @@ export default function DirectorMusical(){
       <div className="dm-header">
         <div style={{display:"flex",flexDirection:"column",gap:3}}>
           <div className="dm-logotype">
-            <div className="dm-title">Dimas <em>Diretor Musical</em></div>
+            <div className="dm-title">DIRETOR <em>MUSICAL</em></div>
             {profile?.nome&&<div className="dm-artist">{profile.nome}</div>}
           </div>
           {isConnected&&(
