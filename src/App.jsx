@@ -1,15 +1,16 @@
-import { useState, useEffect, useRef, useCallback } from "react";
-
 // ============================================================
-//  DIRETOR MUSICAL — Fase 2
+//  DIRETOR MUSICAL — Fase 3
 //  IA via Anthropic API (proxy seguro em /api/chat.js).
 //  Dados reais via Google Sheets + Apps Script.
+//  Memória persistente: o Diretor aprende sobre o artista
+//  a cada conversa e lembra entre sessões.
 // ============================================================
+import { useState, useEffect, useRef, useCallback } from "react";
 
 const STORAGE_PROFILE = "diretor_profile_v2";
 const STORAGE_MSGS    = "diretor_msgs_v2";
 const STORAGE_CONFIG  = "diretor_config_v1";
-const STORAGE_MEMORIA = "diretor_memoria_v1"; // cache local das memórias
+const STORAGE_MEMORIA = "diretor_memoria_v1";
 
 const store = {
   get: (k) => { try { const v=localStorage.getItem(k); return v?{value:v}:null; } catch { return null; } },
@@ -60,10 +61,9 @@ const CSS = `
 }
 body{background:var(--bg);color:var(--cream);font-family:var(--sans);-webkit-tap-highlight-color:transparent;}
 #dm-root{min-height:100vh;max-width:680px;margin:0 auto;display:flex;flex-direction:column;}
-
-/* HEADER */
 .dm-header{display:flex;align-items:center;justify-content:space-between;padding:14px 20px 11px;border-bottom:1px solid var(--border);background:var(--bg);position:sticky;top:0;z-index:10;}
-.dm-logotype{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;}
+.dm-logotype{display:flex;flex-direction:column;gap:3px;}
+.dm-logotype-row{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;}
 .dm-title{font-family:var(--display);font-size:19px;font-weight:700;letter-spacing:.02em;color:var(--cream);line-height:1;}
 .dm-title em{color:var(--gold);font-style:normal;}
 .dm-artist{font-family:var(--mono);font-size:10.5px;color:var(--gold-dim);letter-spacing:.06em;text-transform:uppercase;border-left:1px solid var(--border2);padding-left:10px;}
@@ -72,22 +72,17 @@ body{background:var(--bg);color:var(--cream);font-family:var(--sans);-webkit-tap
 .dm-header-btns{display:flex;gap:6px;flex-shrink:0;}
 .hbtn{width:33px;height:33px;border-radius:50%;background:var(--raised);border:1px solid var(--border);color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:color .15s,border-color .15s,background .15s;}
 .hbtn:hover{color:var(--gold);border-color:var(--gold-dim);background:var(--raised2);}
-
-/* SYNC BANNER */
-.sync-banner{
-  display:flex;align-items:center;justify-content:space-between;
-  padding:10px 20px;background:var(--ok-soft);border-bottom:1px solid var(--ok);
-  font-family:var(--mono);font-size:12px;color:var(--ok);
-}
-.sync-banner.warn{background:#1A0E05;border-color:var(--gold-dim);color:var(--gold-dim);}
-.sync-btn{background:var(--ok);border:none;border-radius:6px;color:#0A1F0E;font-size:12px;font-weight:700;padding:5px 12px;cursor:pointer;}
-.sync-btn.warn{background:var(--gold);color:#1A1304;}
-
-/* QUICK ACTIONS */
+.sync-banner{display:flex;align-items:center;justify-content:space-between;padding:10px 20px;background:#1A0E05;border-bottom:1px solid var(--gold-dim);font-family:var(--mono);font-size:12px;color:var(--gold-dim);}
+.sync-btn{background:var(--gold);border:none;border-radius:6px;color:#1A1304;font-size:12px;font-weight:700;padding:5px 12px;cursor:pointer;}
 .qa-wrap{flex:1;overflow-y:auto;padding:20px;}
 .qa-intro{margin-bottom:20px;}
 .qa-intro h2{font-family:var(--display);font-size:24px;font-weight:700;color:var(--cream);line-height:1.2;margin-bottom:4px;}
 .qa-intro p{font-size:13px;color:var(--muted);line-height:1.55;}
+.stats-strip{display:flex;margin-bottom:20px;background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;}
+.stat{flex:1;padding:12px 10px;text-align:center;border-right:1px solid var(--border);}
+.stat:last-child{border-right:none;}
+.stat-n{font-family:var(--display);font-size:24px;font-weight:700;color:var(--gold);line-height:1;}
+.stat-l{font-family:var(--mono);font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-top:3px;}
 .qa-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
 @media(min-width:480px){.qa-grid{grid-template-columns:repeat(4,1fr);}}
 .qa-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 12px;cursor:pointer;text-align:left;transition:border-color .15s,background .15s,transform .12s;}
@@ -95,18 +90,6 @@ body{background:var(--bg);color:var(--cream);font-family:var(--sans);-webkit-tap
 .qa-card:active{transform:scale(.96);}
 .qa-emoji{font-size:20px;display:block;margin-bottom:8px;}
 .qa-label{font-size:12px;font-weight:600;color:var(--cream);white-space:pre-line;line-height:1.3;}
-
-/* STATS STRIP */
-.stats-strip{
-  display:flex;gap:0;margin-bottom:20px;
-  background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;
-}
-.stat{flex:1;padding:12px 10px;text-align:center;border-right:1px solid var(--border);}
-.stat:last-child{border-right:none;}
-.stat-n{font-family:var(--display);font-size:24px;font-weight:700;color:var(--gold);line-height:1;}
-.stat-l{font-family:var(--mono);font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-top:3px;}
-
-/* CHAT */
 .chat-area{flex:1;overflow-y:auto;padding:18px 20px;display:flex;flex-direction:column;gap:18px;}
 .chat-area::-webkit-scrollbar{width:3px;}
 .chat-area::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px;}
@@ -121,8 +104,6 @@ body{background:var(--bg);color:var(--cream);font-family:var(--sans);-webkit-tap
 .thinking span{width:6px;height:6px;background:var(--gold-dim);border-radius:50%;animation:dmP 1.2s ease-in-out infinite;}
 .thinking span:nth-child(2){animation-delay:.2s;}.thinking span:nth-child(3){animation-delay:.4s;}
 @keyframes dmP{0%,100%{opacity:.25;transform:scale(.8);}50%{opacity:1;transform:scale(1.2);}}
-
-/* INPUT */
 .input-bar{padding:10px 16px 16px;border-top:1px solid var(--border);background:var(--bg);display:flex;gap:10px;align-items:flex-end;}
 .input-bar textarea{flex:1;min-width:0;background:var(--raised);border:1px solid var(--border);border-radius:10px;color:var(--cream);font-family:var(--sans);font-size:15px;padding:10px 13px;resize:none;min-height:44px;max-height:130px;line-height:1.5;transition:border-color .15s;overflow-y:auto;}
 .input-bar textarea:focus{outline:none;border-color:var(--gold-dim);}
@@ -130,8 +111,6 @@ body{background:var(--bg);color:var(--cream);font-family:var(--sans);-webkit-tap
 .send-btn{width:44px;height:44px;flex-shrink:0;background:var(--gold);border:none;border-radius:10px;color:#1A1304;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:filter .15s,transform .12s;}
 .send-btn:hover:not(:disabled){filter:brightness(1.1);}
 .send-btn:disabled{opacity:.32;cursor:not-allowed;}
-
-/* ONBOARDING */
 .onboard{flex:1;display:flex;flex-direction:column;padding:28px 24px 24px;max-width:480px;margin:0 auto;width:100%;}
 .ob-progress{display:flex;gap:6px;margin-bottom:32px;}
 .ob-dot{height:3px;flex:1;border-radius:2px;background:var(--border2);transition:background .3s;}
@@ -148,13 +127,14 @@ body{background:var(--bg);color:var(--cream);font-family:var(--sans);-webkit-tap
 .chips{display:flex;flex-wrap:wrap;gap:8px;}
 .chip{padding:7px 13px;border-radius:100px;border:1px solid var(--border);background:var(--surface);color:var(--muted);font-size:13px;font-weight:500;cursor:pointer;transition:all .15s;user-select:none;-webkit-user-select:none;}
 .chip.on{background:var(--gold-soft);border-color:var(--gold-dim);color:var(--gold);}
-.ob-nav{margin-top:auto;padding-top:24px;display:flex;gap:10px;}
+.ob-nav{margin-top:auto;padding-top:24px;display:flex;flex-direction:column;gap:10px;}
+.ob-nav-row{display:flex;gap:10px;}
 .ob-back{padding:13px 16px;background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--muted);font-size:15px;font-weight:600;cursor:pointer;flex:1;}
 .ob-next{padding:13px 20px;background:var(--gold);border:none;border-radius:8px;color:#1A1304;font-size:15px;font-weight:700;cursor:pointer;flex:2;transition:filter .15s;}
 .ob-next:hover{filter:brightness(1.08);}
 .ob-next:disabled{opacity:.35;cursor:not-allowed;}
-
-/* MODAL */
+.ob-skip{padding:11px 16px;background:transparent;border:none;color:var(--muted);font-size:13px;font-weight:600;cursor:pointer;width:100%;text-align:center;font-family:var(--mono);}
+.ob-skip:hover{color:var(--gold-dim);}
 .mover{position:fixed;inset:0;background:rgba(4,3,2,.88);display:flex;align-items:flex-end;justify-content:center;z-index:50;}
 .mover[hidden]{display:none;}
 .mpanel{width:100%;max-width:680px;background:var(--surface);border:1px solid var(--border2);border-top:2px solid var(--gold);border-radius:14px 14px 0 0;padding:22px 20px 32px;max-height:88vh;overflow-y:auto;}
@@ -165,9 +145,9 @@ body{background:var(--bg);color:var(--cream);font-family:var(--sans);-webkit-tap
 .mbtn-c{padding:12px 16px;background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--muted);font-size:14px;font-weight:600;cursor:pointer;flex:1;}
 .mbtn-s{padding:12px 16px;background:var(--gold);border:none;border-radius:8px;color:#1A1304;font-size:14px;font-weight:700;cursor:pointer;flex:2;transition:filter .15s;}
 .mbtn-s:hover{filter:brightness(1.08);}
-.section-title{font-family:var(--mono);font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--gold-dim);margin:20px 0 10px;padding-top:16px;border-top:1px solid var(--border);}
-.section-title:first-of-type{border-top:none;margin-top:0;padding-top:0;}
-
+.mbtn-s:disabled{opacity:.4;cursor:not-allowed;}
+.stitle{font-family:var(--mono);font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--gold-dim);margin:18px 0 10px;padding-top:14px;border-top:1px solid var(--border);}
+.stitle:first-of-type{border-top:none;margin-top:0;padding-top:0;}
 .qa-wrap::-webkit-scrollbar{width:3px;}
 .qa-wrap::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px;}
 `;
@@ -176,7 +156,8 @@ body{background:var(--bg);color:var(--cream);font-family:var(--sans);-webkit-tap
 function buildSP(p, resumo, memoria) {
   const tem  = resumo && resumo.totalShows > 0 && Array.isArray(resumo.maisOcadas);
   const mems = Array.isArray(memoria) && memoria.length > 0;
-  const hist = tem ? `
+
+  const histSection = tem ? `
 HISTÓRICO REAL (Google Sheets — dados atuais):
 • Shows registrados: ${resumo.totalShows} | Músicas únicas: ${resumo.totalMusicasUnicas} | Média por show: ${resumo.mediaMusicasPorShow}
 
@@ -195,6 +176,11 @@ ${(resumo.ultimos5||[]).map(s=>`• ${s.data} — ${s.local} (${s.qtd} músicas)
 HISTÓRICO: Planilha vazia ou não conectada. Use o perfil declarado para orientar o artista.
 `;
 
+  const memSection = mems ? `
+MEMÓRIAS ACUMULADAS — o que você já aprendeu sobre este artista em conversas anteriores:
+${memoria.map(m=>`[${(m.categoria||'geral').toUpperCase()}] ${m.conteudo}`).join('\n')}
+` : '';
+
   return `Você é o Diretor Musical de ${p.nome||"este artista"}. Profissional contratado, não assistente de IA. 20 anos no mercado de entretenimento brasileiro.
 
 PERFIL:
@@ -205,11 +191,7 @@ PERFIL:
 • Cachê atual: ${p.cache_atual||"—"}
 • Objetivos: ${(p.objetivos||[]).join(", ")||"—"}
 • Diferencial: ${p.diferencial||"—"}
-${hist}
-${mems ? `
-MEMÓRIAS ACUMULADAS — o que você já aprendeu sobre este artista em conversas anteriores:
-${memoria.map(m=>`[${m.categoria.toUpperCase()}] ${m.conteudo}`).join('\n')}
-` : ''}
+${histSection}${memSection}
 REGRAS DE SETLIST — INEGOCIÁVEIS:
 1. NUNCA repita a mesma música dentro de um único setlist. Cada música aparece no máximo uma vez.
 2. RESPEITE O TEMPO SOLICITADO com precisão:
@@ -230,10 +212,10 @@ COMPORTAMENTO GERAL:
 • Autoridade, sem rodeios. Discorda quando necessário.
 • Estratégias com prazos reais e métricas mensuráveis.
 • Usa dados reais do histórico quando existem — nunca ignora o que a planilha diz.
+• Usa as memórias acumuladas para personalizar respostas — não repete perguntas já respondidas antes.
 
 Responda SEMPRE em português brasileiro.`;
 }
-
 
 function Chip({label,selected,onToggle}){
   return <button className={`chip${selected?" on":""}`} onClick={onToggle} type="button">{label}</button>;
@@ -244,87 +226,45 @@ const EC={url:"",token:""};
 
 export default function DirectorMusical(){
   const [profile,setProfile]   = useState(null);
-  const [config,setConfig]     = useState(null);   // { url, token } do Apps Script
-  const [resumo,setResumo]     = useState(null);   // dados da planilha
+  const [config,setConfig]     = useState(null);
+  const [resumo,setResumo]     = useState(null);
   const [syncing,setSyncing]   = useState(false);
   const [messages,setMessages] = useState([]);
   const [input,setInput]       = useState("");
   const [loading,setLoading]   = useState(false);
   const [view,setView]         = useState("loading");
-  const [modal,setModal]       = useState(null);   // null | "profile" | "config"
+  const [modal,setModal]       = useState(null);
   const [obStep,setObStep]     = useState(0);
   const [form,setForm]         = useState(EP);
   const [cfgForm,setCfgForm]   = useState(EC);
-  const endRef    = useRef(null);
-  const profileRef= useRef(null);
+  const endRef     = useRef(null);
+  const profileRef = useRef(null);
   const resumoRef  = useRef(null);
-  const memoriaRef = useRef([]);   // memórias persistentes do Diretor
+  const memoriaRef = useRef([]);
 
-  /* LOAD — lê perfil, mensagens e config do localStorage */
+  /* LOAD — lê perfil, mensagens, config e memória do localStorage */
   useEffect(()=>{
-    const pr=store.get(STORAGE_PROFILE);
-    const mr=store.get(STORAGE_MSGS);
-    const cr=store.get(STORAGE_CONFIG);
-    const memr=store.get(STORAGE_MEMORIA);
-    if(memr){ memoriaRef.current=JSON.parse(memr.value)||[]; }
+    const pr   = store.get(STORAGE_PROFILE);
+    const mr   = store.get(STORAGE_MSGS);
+    const cr   = store.get(STORAGE_CONFIG);
+    const memr = store.get(STORAGE_MEMORIA);
     if(pr){ const p=JSON.parse(pr.value); setProfile(p); profileRef.current=p; setForm(p); }
     if(mr){ setMessages(JSON.parse(mr.value)); }
     if(cr){ const c=JSON.parse(cr.value); setConfig(c); setCfgForm(c); }
+    if(memr){ memoriaRef.current=JSON.parse(memr.value)||[]; }
     const hasProfile = !!pr;
     const hasConfig  = !!cr;
     setView(hasProfile?"main":"onboarding");
-    // Se tem perfil mas não tem planilha, abre modal de conexão automaticamente
+    // Se tem perfil mas não tem planilha conectada, abre modal de conexão
     if(hasProfile && !hasConfig){
       setTimeout(()=>setModal("config"), 400);
     }
   },[]);
 
-  /* Mensagem de boas-vindas local — sem custo de IA */
-  useEffect(()=>{
-    if(view==="main" && profile && messages.length===0 && !loading){
-      const nome = profile.nome || "músico";
-      setMessages([{
-        role:"assistant",
-        content:`Perfil carregado. Estou pronto para trabalhar com você, ${nome}.\n\nAssim que você registrar seus primeiros shows no Setlist PWA, terei dados reais para analisar — setlists baseados no seu histórico, padrões de repertório, frequência de shows e muito mais.\n\nPor enquanto, escolha uma ação acima ou me faça uma pergunta direta.`
-      }]);
-    }
-  // eslint-disable-next-line
-  },[view, profile]);
-
   useEffect(()=>{ endRef.current?.scrollIntoView({behavior:"smooth"}); },[messages,loading]);
 
-  /* SYNC com a planilha */
-  const syncPlanilha = useCallback(async(cfg)=>{
-    const c = cfg || config;
-    if(!c?.url||!c?.token) return null;
-    setSyncing(true);
-    try{
-      const res = await fetch(`${c.url}?action=resumo&token=${encodeURIComponent(c.token)}`);
-      const json = await res.json();
-      if(json.success){
-        const novoResumo = json.resumo;
-        // Se o total de shows diminuiu (usuário apagou histórico),
-        // limpa o chat para o Diretor não usar contexto desatualizado
-        const totalAnterior = resumoRef.current?.totalShows;
-        const totalNovo     = novoResumo?.totalShows ?? 0;
-        if(totalAnterior !== undefined && totalNovo < totalAnterior){
-          setMessages([]);
-          store.set(STORAGE_MSGS, JSON.stringify([]));
-        }
-        resumoRef.current = novoResumo;
-        setResumo(novoResumo);
-        setSyncing(false);
-        // Atualiza memórias em background após cada sync
-        fetchMemoria();
-        return novoResumo;
-      }
-    }catch(e){ console.error("Sync error:",e); }
-    setSyncing(false);
-    return null;
-  },[config, fetchMemoria]);
+  /* ── MEMÓRIA: busca e extração (definidas ANTES de syncPlanilha/sendMessage) ── */
 
-  /* PUTER.JS CALL */
-  // Chama o proxy seguro no Vercel — a API key nunca fica exposta no frontend
   // Busca memórias da planilha e atualiza o cache local
   const fetchMemoria = useCallback(async()=>{
     const c = config;
@@ -344,13 +284,11 @@ export default function DirectorMusical(){
     const c = config;
     if(!c?.url||!c?.token) return;
     if(msgs.length < 2) return;
-    // Só processa se houver mensagem nova do usuário e resposta do Diretor
     const ultimaMsgUser = [...msgs].reverse().find(m=>m.role==="user");
     const ultimaRespDir = [...msgs].reverse().find(m=>m.role==="assistant");
     if(!ultimaMsgUser||!ultimaRespDir) return;
 
     try{
-      // Chamada de IA para extrair memórias da conversa
       const extractRes = await fetch("/api/chat",{
         method:"POST",
         headers:{"Content-Type":"application/json"},
@@ -372,17 +310,15 @@ Extraia apenas informações REALMENTE relevantes sobre o artista (preferências
         })
       });
       const extractData = await extractRes.json();
-      const text = extractData.content?.[0]?.text||"{}";
+      const text  = extractData.content?.[0]?.text||"{}";
       const clean = text.replace(/```json|```/g,"").trim();
       const parsed = JSON.parse(clean);
       if(parsed.memorias && parsed.memorias.length > 0){
-        // Salva na planilha
         await fetch(c.url,{
           method:"POST",
           headers:{"Content-Type":"text/plain;charset=utf-8"},
           body:JSON.stringify({ token:c.token, action:"salvar_memoria", memorias:parsed.memorias })
         });
-        // Atualiza cache local
         const novas = [...memoriaRef.current, ...parsed.memorias].slice(-30);
         memoriaRef.current = novas;
         store.set(STORAGE_MEMORIA, JSON.stringify(novas));
@@ -390,13 +326,41 @@ Extraia apenas informações REALMENTE relevantes sobre o artista (preferências
     }catch(e){ console.log("Memory extraction skipped:",e.message); }
   },[config]);
 
+  /* SYNC com a planilha */
+  const syncPlanilha = useCallback(async(cfg)=>{
+    const c = cfg || config;
+    if(!c?.url||!c?.token) return null;
+    setSyncing(true);
+    try{
+      const res = await fetch(`${c.url}?action=resumo&token=${encodeURIComponent(c.token)}`);
+      const json = await res.json();
+      if(json.success){
+        const novoResumo = json.resumo;
+        const totalAnterior = resumoRef.current?.totalShows;
+        const totalNovo     = novoResumo?.totalShows ?? 0;
+        if(totalAnterior !== undefined && totalNovo < totalAnterior){
+          setMessages([]);
+          store.set(STORAGE_MSGS, JSON.stringify([]));
+        }
+        resumoRef.current = novoResumo;
+        setResumo(novoResumo);
+        setSyncing(false);
+        fetchMemoria();
+        return novoResumo;
+      }
+    }catch(e){ console.error("Sync error:",e); }
+    setSyncing(false);
+    return null;
+  },[config, fetchMemoria]);
+
+  /* Chama o proxy seguro no Vercel — a API key nunca fica exposta no frontend */
   const callAPI = useCallback(async(msgs,p,r)=>{
     const prof = p||profileRef.current||form;
     const res_ = r!==undefined?r:resumoRef.current;
     const mem_ = memoriaRef.current||[];
     const fullMessages=[
       { role:"user",      content:`Contexto — leia antes de responder:\n\n${buildSP(prof, res_, mem_)}` },
-      { role:"assistant", content:"Entendido. Estou com acesso ao perfil e ao histórico real de shows. Pronto para trabalhar." },
+      { role:"assistant", content:"Entendido. Estou com acesso ao perfil, histórico real de shows e memórias de conversas anteriores. Pronto para trabalhar." },
       ...msgs
     ];
     const res = await fetch("/api/chat",{
@@ -414,7 +378,6 @@ Extraia apenas informações REALMENTE relevantes sobre o artista (preferências
     const cur = base!==undefined?base:messages;
     const nm  = [...cur,{role:"user",content:text}];
     setMessages(nm); setInput(""); setLoading(true);
-    // sync silencioso antes de responder
     let r = resumoRef.current;
     if(config?.url) r = await syncPlanilha() || r;
     try{
@@ -433,7 +396,6 @@ Extraia apenas informações REALMENTE relevantes sobre o artista (preferências
     store.set(STORAGE_PROFILE,JSON.stringify(p));
     setModal(null); setView("main");
     if(isFirst){
-      // Salva config da planilha se foi preenchida no onboarding
       if(cfgForm.url.trim()&&cfgForm.token.trim()){
         const c={url:cfgForm.url.trim(),token:cfgForm.token.trim()};
         setConfig(c);
@@ -449,12 +411,18 @@ Extraia apenas informações REALMENTE relevantes sobre o artista (preferências
     setConfig(c); setCfgForm(c);
     store.set(STORAGE_CONFIG,JSON.stringify(c));
     setModal(null);
-    const r = await syncPlanilha(c);
-    if(r) setSyncing(false);
+    try{ await syncPlanilha(c); }catch{}
   },[syncPlanilha]);
 
   /* ONBOARDING STEPS */
   const OB=[
+    { q:"Conecte sua planilha de shows.", h:"Cole a URL do Web App do Apps Script e o token. O Diretor consulta sua planilha em tempo real. Pode pular e conectar depois pelo ícone 🔗.", valid:()=>cfgForm.url.trim().length>0&&cfgForm.token.trim().length>0,
+      skip:true,
+      body:()=>(<>
+        <div className="field"><label className="fl">URL do Web App (Apps Script)</label><input className="fi" value={cfgForm.url} placeholder="https://script.google.com/macros/s/.../exec" onChange={e=>setCfgForm(f=>({...f,url:e.target.value}))}/></div>
+        <div className="field"><label className="fl">Token secreto</label><input className="fi" value={cfgForm.token} placeholder="mesmo SECRET_TOKEN do Code.gs" onChange={e=>setCfgForm(f=>({...f,token:e.target.value}))}/></div>
+      </>)
+    },
     { q:"Como você se apresenta ao mercado?", h:"Nome artístico, como você toca e onde atua.", valid:()=>form.nome.trim().length>0,
       body:()=>(<>
         <div className="field"><label className="fl">Nome artístico / marca</label><input className="fi" value={form.nome} placeholder="Ex: Higgor Acústico…" onChange={e=>setForm(f=>({...f,nome:e.target.value}))} /></div>
@@ -483,10 +451,9 @@ Extraia apenas informações REALMENTE relevantes sobre o artista (preferências
   ];
 
   const step=OB[obStep]; const isLast=obStep===OB.length-1;
-  // Mostra a grade de ações se não há mensagens reais (ignora welcome automático)
   const showQA=messages.filter(m=>m.role==="user").length===0&&!loading;
   const isConnected=!!(config?.url&&config?.token);
-  const temHistorico = !!(resumo && resumo.totalShows > 0 && Array.isArray(resumo.maisOcadas));
+  const temHistorico=!!(resumo&&resumo.totalShows>0&&Array.isArray(resumo.maisOcadas));
 
   /* ── LOADING ── */
   if(view==="loading") return <div id="dm-root" style={{alignItems:"center",justifyContent:"center"}}><style>{CSS}</style><div className="thinking"><span/><span/><span/></div></div>;
@@ -503,11 +470,13 @@ Extraia apenas informações REALMENTE relevantes sobre o artista (preferências
         <h2 className="ob-q">{step.q}</h2><p className="ob-hint">{step.h}</p>
         {step.body()}
         <div className="ob-nav">
-          {obStep>0&&<button className="ob-back" onClick={()=>setObStep(s=>s-1)}>← Voltar</button>}
-          <button className="ob-next" disabled={isLast?!step.valid():(!step.valid()&&!step.skip)} onClick={()=>{ if(isLast) saveProfile(form,true); else setObStep(s=>s+1); }}>
-            {isLast?"Conhecer meu Diretor →":step.valid()?"Continuar →":"Continuar →"}
-          </button>
-          {step.skip&&!step.valid()&&<button className="ob-back" style={{marginTop:10,flex:"none",width:"100%",textAlign:"center"}} onClick={()=>setObStep(s=>s+1)}>Pular — conectar depois →</button>}
+          <div className="ob-nav-row">
+            {obStep>0&&<button className="ob-back" onClick={()=>setObStep(s=>s-1)}>← Voltar</button>}
+            <button className="ob-next" disabled={isLast?!step.valid():(!step.valid()&&!step.skip)} onClick={()=>{ if(isLast) saveProfile(form,true); else setObStep(s=>s+1); }}>
+              {isLast?"Conhecer meu Diretor →":"Continuar →"}
+            </button>
+          </div>
+          {step.skip&&!step.valid()&&<button className="ob-skip" onClick={()=>setObStep(s=>s+1)}>Pular — conectar depois →</button>}
         </div>
       </div>
     </div>
@@ -520,8 +489,10 @@ Extraia apenas informações REALMENTE relevantes sobre o artista (preferências
       <div className="dm-header">
         <div style={{display:"flex",flexDirection:"column",gap:3}}>
           <div className="dm-logotype">
-            <div className="dm-title">DIRETOR <em>MUSICAL</em></div>
-            {profile?.nome&&<div className="dm-artist">{profile.nome}</div>}
+            <div className="dm-logotype-row">
+              <div className="dm-title">DIRETOR <em>MUSICAL</em></div>
+              {profile?.nome&&<div className="dm-artist">{profile.nome}</div>}
+            </div>
           </div>
           {isConnected&&(
             <div className={`dm-sync${temHistorico?"":" off"}`}>
@@ -543,23 +514,15 @@ Extraia apenas informações REALMENTE relevantes sobre o artista (preferências
         </div>
       </div>
 
-      {/* SYNC BANNER — quando não tem planilha conectada */}
-      {!isConnected&&view==="main"&&showQA&&(
-        <div className="sync-banner warn">
-          <span>⚡ Conecte sua planilha para análises baseadas em dados reais</span>
-          <button className="sync-btn warn" onClick={()=>{ setCfgForm(EC); setModal("config"); }}>Conectar</button>
-        </div>
-      )}
-      {isConnected&&!temHistorico&&showQA&&(
+      {!isConnected&&showQA&&(
         <div className="sync-banner">
-          <span>✓ Planilha conectada — registre seu primeiro show no Setlist PWA</span>
-          <button className="sync-btn" onClick={()=>syncPlanilha()}>Atualizar</button>
+          <span>⚡ Conecte sua planilha para análises baseadas em dados reais</span>
+          <button className="sync-btn" onClick={()=>{ setCfgForm(EC); setModal("config"); }}>Conectar</button>
         </div>
       )}
 
       {showQA?(
         <div className="qa-wrap">
-          {/* STATS quando tem histórico */}
           {temHistorico&&(
             <div className="stats-strip">
               <div className="stat"><div className="stat-n">{resumo.totalShows}</div><div className="stat-l">shows</div></div>
@@ -571,7 +534,6 @@ Extraia apenas informações REALMENTE relevantes sobre o artista (preferências
           <div className="qa-intro">
             <h2>O que trabalhamos hoje?</h2>
             <p>{temHistorico?"Respostas baseadas no seu histórico real de shows.":"Escolha uma ação ou escreva sua pergunta abaixo."}</p>
-            {profile&&!temHistorico&&<p style={{marginTop:6,fontSize:12,color:"var(--gold-dim)",fontFamily:"var(--mono)"}}>✓ Perfil carregado — registre shows no Setlist PWA para análises com dados reais.</p>}
           </div>
           <div className="qa-grid">{QUICK_ACTIONS.map((qa,i)=><button key={i} className="qa-card" onClick={()=>sendMessage(qa.prompt)}><span className="qa-emoji">{qa.emoji}</span><span className="qa-label">{qa.label}</span></button>)}</div>
         </div>
@@ -603,20 +565,20 @@ Extraia apenas informações REALMENTE relevantes sobre o artista (preferências
         <div className="mpanel">
           <div className="mtitle">Perfil artístico</div>
           <div className="msub">Estas informações alimentam o contexto do Diretor Musical.</div>
-          <div className="section-title">Identificação</div>
+          <div className="stitle">Identificação</div>
           <div className="field"><label className="fl">Nome artístico</label><input className="fi" value={form.nome} onChange={e=>setForm(f=>({...f,nome:e.target.value}))} /></div>
           <div className="field"><label className="fl">Formação</label><select className="fs" value={form.formacao} onChange={e=>setForm(f=>({...f,formacao:e.target.value}))}><option value="">Selecione…</option>{FORMACOES.map(o=><option key={o}>{o}</option>)}</select></div>
           <div className="field"><label className="fl">Região</label><input className="fi" value={form.regiao} onChange={e=>setForm(f=>({...f,regiao:e.target.value}))} /></div>
-          <div className="section-title">Repertório e mercado</div>
+          <div className="stitle">Repertório e mercado</div>
           <div className="field"><label className="fl">Gêneros</label><div className="chips">{GENEROS_LIST.map(g=><Chip key={g} label={g} selected={form.generos.includes(g)} onToggle={()=>setForm(f=>({...f,generos:tog(f.generos,g)}))} />)}</div></div>
           <div className="field"><label className="fl">Referências</label><textarea className="fta" value={form.referencias} onChange={e=>setForm(f=>({...f,referencias:e.target.value}))} /></div>
           <div className="field"><label className="fl">Tipos de evento</label><div className="chips">{EVENTOS_LIST.map(e=><Chip key={e} label={e} selected={form.tipos_evento.includes(e)} onToggle={()=>setForm(f=>({...f,tipos_evento:tog(f.tipos_evento,e)}))} />)}</div></div>
           <div className="field"><label className="fl">Cachê atual</label><input className="fi" value={form.cache_atual} onChange={e=>setForm(f=>({...f,cache_atual:e.target.value}))} /></div>
-          <div className="section-title">Objetivos</div>
+          <div className="stitle">Objetivos</div>
           <div className="field"><div className="chips">{OBJETIVOS_LIST.map(o=><Chip key={o} label={o} selected={form.objetivos.includes(o)} onToggle={()=>setForm(f=>({...f,objetivos:tog(f.objetivos,o)}))} />)}</div></div>
           <div className="field"><label className="fl">Diferencial</label><textarea className="fta" value={form.diferencial} onChange={e=>setForm(f=>({...f,diferencial:e.target.value}))} /></div>
           <div className="mbtns">
-            <button className="mbtn-c" onClick={()=>{ setModal(null); setForm(profile); }}>Cancelar</button>
+            <button className="mbtn-c" onClick={()=>{ setModal(null); setForm(profile||EP); }}>Cancelar</button>
             <button className="mbtn-s" onClick={()=>saveProfile(form,false)}>Salvar perfil</button>
           </div>
         </div>
