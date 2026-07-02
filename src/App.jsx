@@ -241,6 +241,13 @@ COMPORTAMENTO GERAL:
 • Usa as memórias acumuladas para personalizar respostas — não repete perguntas já respondidas antes.
 • Ao finalizar um assunto com profundidade (setlist entregue, plano concluído, análise completa), sinalize o encerramento com uma frase como "podemos seguir para outro assunto" ou "o que mais posso trabalhar com você hoje?" — isso permite ao artista escolher um novo tema sem perder o contexto.
 
+FORMATO DE RESPOSTA — OBRIGATÓRIO:
+• NUNCA use tabelas (| e ---). Substitua por listas numeradas ou tópicos em texto corrido.
+• NUNCA use markdown (* ** # ~~ _). Escreva em texto limpo, sem símbolos de formatação.
+• Para organizar informações use: números (1. 2. 3.), letras (a. b. c.) ou separadores (——).
+• Setlists: use o formato "1. Título — Artista | duração | motivo" em linhas separadas.
+• Negrito e ênfase: expresse através da construção da frase, não de símbolos.
+
 Responda SEMPRE em português brasileiro.`;
 }
 
@@ -396,6 +403,15 @@ Extraia apenas informações REALMENTE relevantes sobre o artista (preferências
       headers:{"Content-Type":"application/json"},
       body:JSON.stringify({ model:"claude-sonnet-4-6", max_tokens:2048, messages:fullMessages })
     });
+    // Detect HTML error pages before trying to parse as JSON
+    const contentType = res.headers.get("content-type")||"";
+    if(contentType.includes("text/html")){
+      throw new Error(
+        res.status === 404
+          ? "Rota /api/chat não encontrada. Verifique se o arquivo api/chat.js está na raiz do repositório no GitHub."
+          : `Servidor retornou erro ${res.status}. Verifique a variável ANTHROPIC_API_KEY no Vercel.`
+      );
+    }
     const d = await res.json();
     if(!res.ok) throw new Error(d.error?.message||d.error||"Erro no servidor");
     return d.content?.[0]?.text||"Erro na resposta.";
